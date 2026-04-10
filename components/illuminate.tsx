@@ -1082,11 +1082,151 @@ function ResultsScreen({
         }
       }
 
-      // Black background
-      pdf.setFillColor(0, 0, 0)
-      pdf.rect(0, 0, pageWidth, pageHeight, "F")
+      // Helper to draw gradient fade effect (black to transparent bottom)
+      const drawFadeOverlay = (x: number, y: number, w: number, h: number) => {
+        // Create gradient from transparent to black at bottom 20% of image
+        const fadeStartY = y + h * 0.8
+        const steps = 20
+        for (let i = 0; i < steps; i++) {
+          const alpha = (i / steps) * 0.7 // Max opacity 0.7 for smooth fade
+          const currentY = fadeStartY + (h * 0.2 * i) / steps
+          const currentH = (h * 0.2) / steps
+          pdf.setFillColor(0, 0, 0)
+          pdf.setGlobalAlpha(alpha)
+          pdf.rect(x, currentY, w, currentH, "F")
+        }
+        pdf.setGlobalAlpha(1.0)
+      }
 
-      // Load and add logo image (top-left, fixed height 40pt as specified)
+      // Black background for all pages
+      const drawBlackBackground = () => {
+        pdf.setFillColor(0, 0, 0)
+        pdf.rect(0, 0, pageWidth, pageHeight, "F")
+      }
+
+      // PAGE 1: HERO BANNER + TOP 2 SCORES
+      drawBlackBackground()
+      
+      // Add hero banner with fade effect
+      try {
+        const bannerImg = await loadImage("/illuminate-banner.jpg")
+        const bannerHeight = 200
+        const bannerWidth = contentWidth
+        
+        pdf.addImage("/illuminate-banner.jpg", "JPEG", margin, y, bannerWidth, bannerHeight)
+        
+        // Draw fade overlay at bottom 20% of banner
+        drawFadeOverlay(margin, y, bannerWidth, bannerHeight)
+        
+        y += bannerHeight + 40 // 40px whitespace after banner as spec'd
+      } catch (err) {
+        console.error("[PDF] Failed to load banner:", err)
+        y += 40
+      }
+
+      // User greeting in full-width teal bar
+      const welcomeText = userData.name
+        ? `Well done ${userData.name} on completing the assessment! Please bring this with you to your session later.`
+        : "Well done on completing the assessment! Please bring this with you to your session later."
+      
+      pdf.setFillColor(1, 160, 182)
+      pdf.rect(0, y, pageWidth, 44, "F")
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(12)
+      pdf.setFont("montserrat", "bold")
+      const welcomeLines = pdf.splitTextToSize(welcomeText, contentWidth - 20)
+      pdf.text(welcomeLines, pageWidth / 2, y + 12, { align: "center", maxWidth: contentWidth - 20 })
+      y += 54
+
+      // Sort by score descending (highest first)
+      const categories: Category[] = ["Generator", "Reflector", "Connector", "Ignitor"]
+      const rankedCategories = [...categories].sort((a, b) => scores[b] - scores[a])
+      
+      // Split into page 1 (top 2) and page 2 (bottom 2)
+      const page1Categories = rankedCategories.slice(0, 2)
+      const page2Categories = rankedCategories.slice(2, 4)
+      
+      // Helper to render a preference row
+      const renderPreferenceRow = async (category: Category, currentY: number) => {
+        let rowY = currentY
+        
+        // ===== SPLIT ROW: 25% LEFT | 75% RIGHT =====
+        const leftColW = contentWidth * 0.25
+        const rightColW = contentWidth * 0.75
+        const leftX = margin
+        const rightX = margin + leftColW
+        
+        // Left column: Image (25%)
+        const imageHeight = 100
+        try {
+          await drawImageWithOpacity(
+            PERSONALITY_IMAGES[category],
+            leftX,
+            rowY,
+            leftColW,
+            imageHeight,
+            1.0
+          )
+        } catch {
+          // Silent fail
+        }
+        
+        // Right column: Header + Descriptor (75%)
+        pdf.setFillColor(0, 0, 0)
+        pdf.rect(rightX, rowY, rightColW, imageHeight, "F")
+        
+        // Header row: Category name (Teal, 20pt) + Score (Teal, top-right)
+        pdf.setTextColor(1, 160, 182)
+        pdf.setFontSize(20)
+        pdf.setFont("centurygothic", "bold")
+        pdf.text(category, rightX + 12, rowY + 20)
+        
+        // Score in top right
+        pdf.setTextColor(1, 160, 182)
+        pdf.setFontSize(20)
+        pdf.setFont("centurygothic", "bold")
+        pdf.text(`${scores[category]}/40`, rightX + rightColW - 50, rowY + 20)
+        
+        // Descriptor text below (Montserrat 11pt, white, 1.4 line spacing)
+        const descText = masterDescriptors[category]
+        pdf.setFont("montserrat", "normal")
+        pdf.setFontSize(11)
+        pdf.setTextColor(255, 255, 255)
+        const descLines = pdf.splitTextToSize(descText, rightColW - 24)
+        
+        // Calculate height needed for descriptor
+        const descHeight = descLines.length * 11 * 1.4
+        pdf.text(descLines, rightX + 12, rowY + 48, { lineHeightFactor: 1.4 })
+        
+        rowY += Math.max(imageHeight, descHeight + 48) + 2
+        
+        // ===== FULL-WIDTH TEAL PRESSURE BAR =====
+        const pressureText = pressureStatements[category]
+        pdf.setFillColor(1, 160, 182)
+        const pressureHeight = 36
+        pdf.rect(0, rowY, pageWidth, pressureHeight, "F")
+        
+        pdf.setTextColor(255, 255, 255)
+        pdf.setFontSize(11)
+        pdf.setFont("montserrat", "bold")
+        const pressureLines = pdf.splitTextToSize(pressureText, contentWidth - 20)
+        pdf.text(pressureLines, margin, rowY + 8, { maxWidth: contentWidth - 20, lineHeightFactor: 1.3 })
+        
+        rowY += pressureHeight + 12
+        return rowY
+      }
+      
+      // Render page 1 (top 2 scores)
+      for (const category of page1Categories) {
+        y = await renderPreferenceRow(category, y)
+      }
+      
+      // Add page 2
+      pdf.addPage()
+      drawBlackBackground()
+      y = margin
+      
+      // Page 2 header: Logo + "Illuminate"
       try {
         const logoImg = await loadImage(ICONS.elev8Logo)
         const logoHeight = 40
@@ -1101,153 +1241,40 @@ function ResultsScreen({
           pdf.addImage(logoData, "JPEG", margin, y, logoWidth, logoHeight)
         }
       } catch {
-        pdf.setTextColor(1, 160, 182)
-        pdf.setFontSize(14)
-        pdf.setFont("centurygothic", "bold")
-        pdf.text("elev8", margin, y + 20)
+        // Silent fail
       }
-
-      // Illuminate title (centered)
+      
       pdf.setTextColor(1, 160, 182)
-      pdf.setFontSize(26)
+      pdf.setFontSize(20)
       pdf.setFont("centurygothic", "bold")
-      pdf.text("Illuminate", pageWidth / 2, y + 26, { align: "center" })
-      y += 50
-
-      // Session message - prominent teal highlight box
-const welcomeText = userData.name
-      ? `Well done ${userData.name} on completing the assessment! Please bring this with you to your session later.`
-        : "Well done on completing the assessment! Please bring this with you to your session later."
+      pdf.text("Illuminate", pageWidth / 2, y + 28, { align: "center" })
+      y += 60
       
-      pdf.setFillColor(1, 160, 182)
-      pdf.roundedRect(margin, y, contentWidth, 34, 4, 4, "F")
-      pdf.setTextColor(0, 0, 0)
-      pdf.setFontSize(10)
-      pdf.setFont("centurygothic", "bold")
-      const welcomeLines = pdf.splitTextToSize(welcomeText, contentWidth - 20)
-      pdf.text(welcomeLines, pageWidth / 2, y + 14, { align: "center", maxWidth: contentWidth - 20 })
-      y += 44
-
-      // ========== RANKED PREFERENCES - SORTED BY SCORE (HIGH TO LOW) ==========
-      const categories: Category[] = ["Generator", "Reflector", "Connector", "Ignitor"]
-      
-      // Sort by score descending (highest first)
-      const rankedCategories = [...categories].sort((a, b) => scores[b] - scores[a])
-      
-      // Add some top padding before preferences
-      y += 20
-
-      // Render each preference ranked by score
-      for (const category of rankedCategories) {
-        const score = scores[category]
-        
-        // ===== PART A: SPLIT ROW =====
-        // Left column: 30% - Category name (Teal) + Image
-        const leftColW = contentWidth * 0.3
-        const rightColW = contentWidth * 0.7
-        const leftX = margin
-        const rightX = margin + leftColW + 8
-        
-        // Left column background
-        pdf.setFillColor(18, 18, 18)
-        pdf.setDrawColor(45, 45, 45)
-        pdf.setLineWidth(1)
-        pdf.rect(leftX, y, leftColW, 100, "FD")
-        
-        // Category name (Teal header)
-        pdf.setTextColor(1, 160, 182)
-        pdf.setFontSize(18)
-        pdf.setFont("centurygothic", "bold")
-        pdf.text(category, leftX + 8, y + 18)
-        
-        // Category image below name
-        try {
-          await drawImageWithOpacity(
-            PERSONALITY_IMAGES[category],
-            leftX + 8,
-            y + 28,
-            leftColW - 16,
-            50,
-            1.0
-          )
-        } catch {
-          // Silent fail
-        }
-        
-        // Right column: 70% - Score + Full descriptor text with auto-height
-        pdf.setFillColor(18, 18, 18)
-        pdf.setDrawColor(45, 45, 45)
-        pdf.setLineWidth(1)
-        
-        // Measure the text height to make right column auto-grow
-        const descText = masterDescriptors[category]
-        const descLines = pdf.splitTextToSize(descText, rightColW - 16)
-        const lineHeight = 1.3
-        const textHeight = descLines.length * (pdf.getFontSize() / 2) * lineHeight
-        const rightColHeight = Math.max(100, textHeight + 40) // Min 100, grow with text
-        
-        pdf.rect(rightX, y, rightColW, rightColHeight, "FD")
-        
-        // Score in top right
-        pdf.setTextColor(255, 255, 255)
-        pdf.setFontSize(20)
-        pdf.setFont("centurygothic", "bold")
-        pdf.text(`${score}/40`, rightX + rightColW - 35, y + 20)
-        
-        // Descriptor text below score
-        pdf.setTextColor(180, 180, 180)
-        pdf.setFontSize(9)
-        pdf.setFont("centurygothic", "normal")
-        pdf.text(descLines, rightX + 8, y + 40, { lineHeightFactor: lineHeight })
-        
-        // Move y down by the taller of the two columns
-        const partAHeight = Math.max(100, rightColHeight)
-        y += partAHeight + 2
-        
-        // ===== PART B: FULL-WIDTH PRESSURE BOX =====
-        const pressureText = pressureStatements[category]
-        const pressureLines = pdf.splitTextToSize(pressureText, contentWidth - 16)
-        const pressureHeight = pressureLines.length * (pdf.getFontSize() / 2) * 1.3 + 16
-        
-        pdf.setFillColor(22, 22, 22)
-        pdf.setDrawColor(209, 9, 128)
-        pdf.setLineWidth(2)
-        pdf.roundedRect(margin, y, contentWidth, pressureHeight, 4, 4, "FD")
-        
-        pdf.setTextColor(209, 9, 128)
-        pdf.setFontSize(10)
-        pdf.setFont("centurygothic", "bold")
-        pdf.text(pressureText, margin + 8, y + 12, { maxWidth: contentWidth - 16, lineHeightFactor: 1.3 })
-        
-        y += pressureHeight + 12
+      // Render page 2 (bottom 2 scores)
+      for (const category of page2Categories) {
+        y = await renderPreferenceRow(category, y)
       }
-
-      // Add new page if content is getting too long
-      if (y > pageHeight - 120) {
-        pdf.addPage()
-        y = margin
-      }
-
-      // ========== FLEXING YOUR APPROACH - FIXED POSITION ==========
-      pdf.setTextColor(1, 160, 182)
-      pdf.setFontSize(11)
-      pdf.setFont("centurygothic", "bold")
-      pdf.text("Flexing Your Approach", margin, y)
-      y += 12
-
+      
+      // Footer on page 2
+      y = pageHeight - 80
+      
       pdf.setTextColor(180, 180, 180)
-      pdf.setFontSize(8)
-      pdf.setFont("centurygothic", "normal")
+      pdf.setFontSize(11)
+      pdf.setFont("montserrat", "normal")
+      pdf.text("Flexing Your Approach", margin, y)
+      y += 16
+      
       const flexText = "Great communication is about making a choice to positively impact every conversation by creating a sense of being alike. The best communicators pick up on clues and adjust their style accordingly. By understanding your dominant preferences and being aware of others, you can flex your approach to build stronger connections."
+      pdf.setFontSize(10)
       const flexLines = pdf.splitTextToSize(flexText, contentWidth)
       pdf.text(flexLines.slice(0, 3), margin, y, { lineHeightFactor: 1.2 })
-
-      // Footer - centered contact details
+      
+      // Contact footer
       pdf.setTextColor(100, 100, 100)
-      pdf.setFontSize(8)
-      pdf.setFont("centurygothic", "normal")
+      pdf.setFontSize(9)
+      pdf.setFont("montserrat", "normal")
       pdf.text("hello@Elev-8.co.uk  |  0333 404 8888", pageWidth / 2, pageHeight - 28, { align: "center" })
-      pdf.setFontSize(7)
+      pdf.setFontSize(8)
       pdf.text("Powered by the Elev-8 behavioural preference model", pageWidth / 2, pageHeight - 16, { align: "center" })
 
       pdf.save(`illuminate-profile${userData.name ? `-${userData.name.toLowerCase().replace(/\s+/g, "-")}` : ""}.pdf`)
