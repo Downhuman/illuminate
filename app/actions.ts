@@ -13,6 +13,11 @@ export async function validateAccessCode(code: string): Promise<AccessCodeValida
   }
 
   try {
+    // Check if database connection is configured
+    if (!process.env.POSTGRES_URL && !process.env.DATABASE_URL) {
+      return { valid: false, error: "Database connection not configured. Please contact support." }
+    }
+
     const result = await sql`
       SELECT code, uses_count, total_limit 
       FROM access_codes 
@@ -31,8 +36,12 @@ export async function validateAccessCode(code: string): Promise<AccessCodeValida
 
     return { valid: true }
   } catch (error) {
-    console.error("Error validating access code:", error)
-    return { valid: false, error: "An error occurred. Please try again." }
+    console.error("[validateAccessCode] Database error:", error)
+    const errorMessage = error instanceof Error ? error.message : "Unknown error"
+    return { 
+      valid: false, 
+      error: `Database connection failed: ${errorMessage.includes("connection") ? "Unable to connect to database" : "Please try again"}` 
+    }
   }
 }
 
