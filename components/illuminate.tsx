@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import Image from "next/image"
 import { validateAccessCode, saveResponse } from "@/app/actions"
+import { masterDescriptors } from "@/lib/descriptors"
 import {
   Radar,
   RadarChart,
@@ -1085,10 +1086,10 @@ function ResultsScreen({
       pdf.setFillColor(0, 0, 0)
       pdf.rect(0, 0, pageWidth, pageHeight, "F")
 
-      // Load and add logo image (top-left, fixed height 45pt - professional size)
+      // Load and add logo image (top-left, fixed height 40pt as specified)
       try {
         const logoImg = await loadImage(ICONS.elev8Logo)
-        const logoHeight = 45
+        const logoHeight = 40
         const logoWidth = (logoImg.width / logoImg.height) * logoHeight
         const logoCanvas = document.createElement("canvas")
         logoCanvas.width = logoImg.width
@@ -1102,14 +1103,14 @@ function ResultsScreen({
       } catch {
         pdf.setTextColor(1, 160, 182)
         pdf.setFontSize(14)
-        pdf.setFont("helvetica", "bold")
+        pdf.setFont("centurygothic", "bold")
         pdf.text("elev8", margin, y + 20)
       }
 
       // Illuminate title (centered)
       pdf.setTextColor(1, 160, 182)
       pdf.setFontSize(26)
-      pdf.setFont("helvetica", "bold")
+      pdf.setFont("centurygothic", "bold")
       pdf.text("Illuminate", pageWidth / 2, y + 26, { align: "center" })
       y += 50
 
@@ -1122,7 +1123,7 @@ const welcomeText = userData.name
       pdf.roundedRect(margin, y, contentWidth, 34, 4, 4, "F")
       pdf.setTextColor(0, 0, 0)
       pdf.setFontSize(10)
-      pdf.setFont("helvetica", "bold")
+      pdf.setFont("centurygothic", "bold")
       const welcomeLines = pdf.splitTextToSize(welcomeText, contentWidth - 20)
       pdf.text(welcomeLines, pageWidth / 2, y + 14, { align: "center", maxWidth: contentWidth - 20 })
       y += 44
@@ -1176,14 +1177,14 @@ const welcomeText = userData.name
         pdf.roundedRect(boxX, boxY, boxW, boxH, 5, 5, "FD")
 
         // === HEADER ROW: Name (left) + Score (right) ===
-        pdf.setTextColor(...colors[category])
+        pdf.setTextColor(1, 160, 182)
         pdf.setFontSize(14)
-        pdf.setFont("helvetica", "bold")
+        pdf.setFont("centurygothic", "bold")
         pdf.text(category, boxX + 6, boxY + 15)
         
         pdf.setTextColor(255, 255, 255)
         pdf.setFontSize(16)
-        pdf.setFont("helvetica", "bold")
+        pdf.setFont("centurygothic", "bold")
         pdf.text(`${scores[category]}/40`, boxX + boxW - 45, boxY + 15)
 
         // === IMAGE: Left side, below header ===
@@ -1205,8 +1206,8 @@ const welcomeText = userData.name
         
         pdf.setTextColor(isLeastDominant ? 130 : 200, isLeastDominant ? 130 : 200, isLeastDominant ? 130 : 200)
         pdf.setFontSize(8.5)
-        pdf.setFont("helvetica", "normal")
-        const narrativeLines = pdf.splitTextToSize(categoryDescriptions[category].strengths, textW)
+        pdf.setFont("centurygothic", "normal")
+        const narrativeLines = pdf.splitTextToSize(masterDescriptors[category], textW)
         const clippedNarrative = narrativeLines.slice(0, narrativeMaxLines)
         pdf.text(clippedNarrative, textX, boxY + 30, { lineHeightFactor: 1.2 })
 
@@ -1221,12 +1222,12 @@ const welcomeText = userData.name
 
         pdf.setTextColor(209, 9, 128)
         pdf.setFontSize(7.5)
-        pdf.setFont("helvetica", "bold")
+        pdf.setFont("centurygothic", "bold")
         pdf.text("BE MINDFUL UNDER PRESSURE...", boxX + 8, pressureY + 10)
 
         pdf.setTextColor(165, 165, 165)
         pdf.setFontSize(7.5)
-        pdf.setFont("helvetica", "normal")
+        pdf.setFont("centurygothic", "normal")
         const pressureLines = pdf.splitTextToSize(categoryDescriptions[category].underPressure, boxW - 18)
         const clippedPressure = pressureLines.slice(0, 2) // Max 2 lines
         pdf.text(clippedPressure, boxX + 8, pressureY + 20, { lineHeightFactor: 1.15 })
@@ -1238,13 +1239,13 @@ const welcomeText = userData.name
       // ========== FLEXING YOUR APPROACH - FIXED POSITION ==========
       pdf.setTextColor(1, 160, 182)
       pdf.setFontSize(11)
-      pdf.setFont("helvetica", "bold")
+      pdf.setFont("centurygothic", "bold")
       pdf.text("Flexing Your Approach", margin, y)
       y += 12
 
       pdf.setTextColor(180, 180, 180)
       pdf.setFontSize(8)
-      pdf.setFont("helvetica", "normal")
+      pdf.setFont("centurygothic", "normal")
       const flexText = "Great communication is about making a choice to positively impact every conversation by creating a sense of being alike. The best communicators pick up on clues and adjust their style accordingly. By understanding your dominant preferences and being aware of others, you can flex your approach to build stronger connections."
       const flexLines = pdf.splitTextToSize(flexText, contentWidth)
       pdf.text(flexLines.slice(0, 3), margin, y, { lineHeightFactor: 1.2 })
@@ -1252,6 +1253,7 @@ const welcomeText = userData.name
       // Footer - centered contact details
       pdf.setTextColor(100, 100, 100)
       pdf.setFontSize(8)
+      pdf.setFont("centurygothic", "normal")
       pdf.text("hello@Elev-8.co.uk  |  0333 404 8888", pageWidth / 2, pageHeight - 28, { align: "center" })
       pdf.setFontSize(7)
       pdf.text("Powered by the Elev-8 behavioural preference model", pageWidth / 2, pageHeight - 16, { align: "center" })

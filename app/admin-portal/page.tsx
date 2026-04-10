@@ -13,8 +13,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Lock, Download, Search, LogOut, Loader2, ArrowUpDown, ChevronLeft, ChevronRight, Plus, Key } from "lucide-react"
-import { verifyAdminPassword, getResponses, getAccessCodes, createAccessCode, type Response, type AccessCode } from "@/app/actions"
+import { Lock, Download, Search, LogOut, Loader2, ArrowUpDown, ChevronLeft, ChevronRight, Plus, Key, Save, Trash2 } from "lucide-react"
+import { verifyAdminPassword, getResponses, getAccessCodes, createAccessCode, countResponsesForAccessCode, updateAccessCodeLimit, deleteAccessCode, type Response, type AccessCode } from "@/app/actions"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 const ITEMS_PER_PAGE = 20
@@ -32,11 +32,16 @@ export default function AdminPortal() {
   
   // Access codes state
   const [accessCodes, setAccessCodes] = useState<AccessCode[]>([])
+  const [accessCodeCounts, setAccessCodeCounts] = useState<Record<number, number>>({})
   const [newCode, setNewCode] = useState("")
   const [newCodeLimit, setNewCodeLimit] = useState("")
   const [isCreatingCode, setIsCreatingCode] = useState(false)
   const [codeError, setCodeError] = useState<string | null>(null)
   const [codeSuccess, setCodeSuccess] = useState<string | null>(null)
+  const [editingCodeId, setEditingCodeId] = useState<number | null>(null)
+  const [editingCodeLimit, setEditingCodeLimit] = useState<string>("")
+  const [savingCodeId, setSavingCodeId] = useState<number | null>(null)
+  const [deletingCodeId, setDeletingCodeId] = useState<number | null>(null)
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -70,6 +75,13 @@ export default function AdminPortal() {
       setCodeError(result.error)
     } else {
       setAccessCodes(result.codes)
+      // Fetch live counts for each code
+      const counts: Record<number, number> = {}
+      for (const code of result.codes) {
+        const countResult = await countResponsesForAccessCode(code.code)
+        counts[code.id] = countResult.count
+      }
+      setAccessCodeCounts(counts)
     }
   }
 
@@ -98,6 +110,43 @@ export default function AdminPortal() {
     }
     
     setIsCreatingCode(false)
+  }
+
+  const handleSaveLimit = async (codeId: number) => {
+    setSavingCodeId(codeId)
+    const limit = parseInt(editingCodeLimit, 10)
+    if (isNaN(limit) || limit < 1) {
+      setCodeError("Usage limit must be a number greater than 0")
+      setSavingCodeId(null)
+      return
+    }
+
+    const result = await updateAccessCodeLimit(codeId, limit)
+    if (result.success) {
+      setEditingCodeId(null)
+      setEditingCodeLimit("")
+      setCodeSuccess("Access code limit updated successfully!")
+      fetchAccessCodes()
+    } else {
+      setCodeError(result.error || "Failed to update limit")
+    }
+    setSavingCodeId(null)
+  }
+
+  const handleDeleteCode = async (codeId: number) => {
+    if (!confirm("Are you sure you want to delete this access code? This cannot be undone.")) {
+      return
+    }
+    
+    setDeletingCodeId(codeId)
+    const result = await deleteAccessCode(codeId)
+    if (result.success) {
+      setCodeSuccess("Access code deleted successfully!")
+      fetchAccessCodes()
+    } else {
+      setCodeError(result.error || "Failed to delete access code")
+    }
+    setDeletingCodeId(null)
   }
 
   const handleLogout = () => {
@@ -573,38 +622,97 @@ export default function AdminPortal() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                  <div className="space-y-3 max-h-[500px] overflow-y-auto">
                     {accessCodes.length === 0 ? (
                       <p className="text-muted-foreground text-sm text-center py-8">
                         No access codes found
                       </p>
                     ) : (
-                      accessCodes.map((code) => (
-                        <div
-                          key={code.id}
-                          className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
-                        >
-                          <div>
-                            <code className="text-sm font-mono font-medium text-foreground">
-                              {code.code}
-                            </code>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Created {new Date(code.created_at).toLocaleDateString()}
-                            </p>
+                      accessCodes.map((code) => {
+                        const actualCount = accessCodeCounts[code.id] || 0
+                        const isLimitReached = actualCount >= code.total_limit
+                        
+                        return (
+                          <div
+                            key={code.id}
+                            className={`flex items-center justify-between p-3 rounded-lg transition-colors ${
+                              isLimitReached ? "bg-red-500/10 border border-red-500/30" : "bg-muted/50"
+                            }`}
+                          >
+                            <div className="flex-1">
+                              <code className="text-sm font-mono font-medium text-foreground">
+                                {code.code}
+                              </code>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Created {new Date(code.created_at).toLocaleDateString()}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="text-right min-w-[100px]">
+                                <p className="text-sm font-medium">
+                                  <span className={isLimitReached ? "text-red-500" : "text-[#01A0B6]"}>
+                                    {actualCount}
+                                  </span>
+                                  <span className="text-muted-foreground"> / </span>
+                                  {editingCodeId === code.id ? (
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      value={editingCodeLimit}
+                                      onChange={(e) => setEditingCodeLimit(e.target.value)}
+                                      className="w-16 px-2 py-1 bg-background border border-border rounded text-sm"
+                                    />
+                                  ) : (
+                                    <span>{code.total_limit}</span>
+                                  )}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {isLimitReached ? "Limit reached" : "responses"}
+                                </p>
+                              </div>
+                              {editingCodeId === code.id ? (
+                                <button
+                                  onClick={() => handleSaveLimit(code.id)}
+                                  disabled={savingCodeId === code.id}
+                                  className="p-2 hover:bg-[#01A0B6]/20 rounded transition-colors text-[#01A0B6] disabled:opacity-50"
+                                  title="Save limit"
+                                >
+                                  {savingCodeId === code.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Save className="w-4 h-4" />
+                                  )}
+                                </button>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => {
+                                      setEditingCodeId(code.id)
+                                      setEditingCodeLimit(code.total_limit.toString())
+                                    }}
+                                    className="p-2 hover:bg-blue-500/20 rounded transition-colors text-blue-500"
+                                    title="Edit limit"
+                                  >
+                                    <Save className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteCode(code.id)}
+                                    disabled={deletingCodeId === code.id}
+                                    className="p-2 hover:bg-red-500/20 rounded transition-colors text-red-500 disabled:opacity-50"
+                                    title="Delete code"
+                                  >
+                                    {deletingCodeId === code.id ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-4 h-4" />
+                                    )}
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
-                          <div className="text-right">
-                            <p className="text-sm font-medium">
-                              <span className={code.uses_count >= code.total_limit ? "text-red-500" : "text-[#01A0B6]"}>
-                                {code.uses_count}
-                              </span>
-                              <span className="text-muted-foreground"> / {code.total_limit}</span>
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {code.uses_count >= code.total_limit ? "Limit reached" : "uses remaining"}
-                            </p>
-                          </div>
-                        </div>
-                      ))
+                        )
+                      })
                     )}
                   </div>
                 </CardContent>

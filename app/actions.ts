@@ -230,3 +230,63 @@ export async function createAccessCode(
     return { success: false, error: `Failed to create access code: ${errorMessage.substring(0, 100)}` }
   }
 }
+
+export async function countResponsesForAccessCode(code: string): Promise<{ count: number; error?: string }> {
+  if (!dbConfigured) {
+    return { count: 0, error: "Database not configured" }
+  }
+
+  try {
+    const result = await sql`
+      SELECT COUNT(*) as count 
+      FROM responses 
+      WHERE access_code = ${code}
+    `
+    return { count: result[0]?.count || 0 }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error("[countResponsesForAccessCode] Database error:", errorMessage)
+    return { count: 0, error: `Failed to count responses: ${errorMessage.substring(0, 100)}` }
+  }
+}
+
+export async function updateAccessCodeLimit(codeId: number, newLimit: number): Promise<{ success: boolean; error?: string }> {
+  if (!dbConfigured) {
+    return { success: false, error: "Database not configured: POSTGRES_URL is missing" }
+  }
+
+  if (!newLimit || newLimit < 1) {
+    return { success: false, error: "Usage limit must be at least 1" }
+  }
+
+  try {
+    await sql`
+      UPDATE access_codes 
+      SET total_limit = ${newLimit}
+      WHERE id = ${codeId}
+    `
+    return { success: true }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error("[updateAccessCodeLimit] Database error:", errorMessage)
+    return { success: false, error: `Failed to update access code limit: ${errorMessage.substring(0, 100)}` }
+  }
+}
+
+export async function deleteAccessCode(codeId: number): Promise<{ success: boolean; error?: string }> {
+  if (!dbConfigured) {
+    return { success: false, error: "Database not configured: POSTGRES_URL is missing" }
+  }
+
+  try {
+    await sql`
+      DELETE FROM access_codes 
+      WHERE id = ${codeId}
+    `
+    return { success: true }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error("[deleteAccessCode] Database error:", errorMessage)
+    return { success: false, error: `Failed to delete access code: ${errorMessage.substring(0, 100)}` }
+  }
+}
