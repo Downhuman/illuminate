@@ -13,8 +13,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Lock, Download, Search, LogOut, Loader2, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react"
-import { verifyAdminPassword, getResponses, type Response } from "@/app/actions"
+import { Lock, Download, Search, LogOut, Loader2, ArrowUpDown, ChevronLeft, ChevronRight, Plus, Key } from "lucide-react"
+import { verifyAdminPassword, getResponses, getAccessCodes, createAccessCode, type Response, type AccessCode } from "@/app/actions"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 const ITEMS_PER_PAGE = 20
 
@@ -28,6 +29,14 @@ export default function AdminPortal() {
   const [sortField, setSortField] = useState<keyof Response>("created_at")
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc")
   const [currentPage, setCurrentPage] = useState(1)
+  
+  // Access codes state
+  const [accessCodes, setAccessCodes] = useState<AccessCode[]>([])
+  const [newCode, setNewCode] = useState("")
+  const [newCodeLimit, setNewCodeLimit] = useState("")
+  const [isCreatingCode, setIsCreatingCode] = useState(false)
+  const [codeError, setCodeError] = useState<string | null>(null)
+  const [codeSuccess, setCodeSuccess] = useState<string | null>(null)
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -39,6 +48,7 @@ export default function AdminPortal() {
     if (isValid) {
       setIsAuthenticated(true)
       fetchResponses()
+      fetchAccessCodes()
     } else {
       setError("Invalid password")
     }
@@ -52,6 +62,42 @@ export default function AdminPortal() {
     } else {
       setResponses(result.responses)
     }
+  }
+
+  const fetchAccessCodes = async () => {
+    const result = await getAccessCodes()
+    if (result.error) {
+      setCodeError(result.error)
+    } else {
+      setAccessCodes(result.codes)
+    }
+  }
+
+  const handleCreateCode = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsCreatingCode(true)
+    setCodeError(null)
+    setCodeSuccess(null)
+
+    const limit = parseInt(newCodeLimit, 10)
+    if (isNaN(limit) || limit < 1) {
+      setCodeError("Usage limit must be a number greater than 0")
+      setIsCreatingCode(false)
+      return
+    }
+
+    const result = await createAccessCode(newCode, limit)
+    
+    if (result.success) {
+      setCodeSuccess(`Access code "${newCode.toUpperCase()}" created successfully!`)
+      setNewCode("")
+      setNewCodeLimit("")
+      fetchAccessCodes()
+    } else {
+      setCodeError(result.error || "Failed to create access code")
+    }
+    
+    setIsCreatingCode(false)
   }
 
   const handleLogout = () => {
@@ -246,6 +292,19 @@ export default function AdminPortal() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
+        <Tabs defaultValue="responses" className="w-full">
+          <TabsList className="mb-6">
+            <TabsTrigger value="responses" className="gap-2">
+              <Search className="w-4 h-4" />
+              Responses
+            </TabsTrigger>
+            <TabsTrigger value="codes" className="gap-2">
+              <Key className="w-4 h-4" />
+              Manage Codes
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="responses">
         {/* Controls */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
           <div className="relative flex-1">
@@ -421,9 +480,138 @@ export default function AdminPortal() {
               >
                 <ChevronRight className="w-4 h-4" />
               </Button>
-            </div>
-          </div>
+</div>
+        </div>
         )}
+          </TabsContent>
+
+          <TabsContent value="codes">
+            <div className="grid gap-6 md:grid-cols-2">
+              {/* Add New Code Form */}
+              <Card className="border-border">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Plus className="w-5 h-5 text-[#01A0B6]" />
+                    Add New Access Code
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleCreateCode} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-2">
+                        New Access Code
+                      </label>
+                      <Input
+                        type="text"
+                        placeholder="e.g., ELEV8-CORP-2026"
+                        value={newCode}
+                        onChange={(e) => setNewCode(e.target.value.toUpperCase())}
+                        className="bg-background font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-muted-foreground mb-2">
+                        Usage Limit
+                      </label>
+                      <Input
+                        type="number"
+                        placeholder="e.g., 100"
+                        min="1"
+                        value={newCodeLimit}
+                        onChange={(e) => setNewCodeLimit(e.target.value)}
+                        className="bg-background"
+                      />
+                    </div>
+                    
+                    {codeError && (
+                      <motion.p
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="text-red-500 text-sm"
+                      >
+                        {codeError}
+                      </motion.p>
+                    )}
+                    
+                    {codeSuccess && (
+                      <motion.p
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="text-green-500 text-sm"
+                      >
+                        {codeSuccess}
+                      </motion.p>
+                    )}
+
+                    <Button
+                      type="submit"
+                      disabled={isCreatingCode || !newCode || !newCodeLimit}
+                      className="w-full bg-[#01A0B6] hover:bg-[#01A0B6]/90 text-black font-semibold"
+                    >
+                      {isCreatingCode ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Creating...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="mr-2 h-4 w-4" />
+                          Create Access Code
+                        </>
+                      )}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+
+              {/* Existing Codes List */}
+              <Card className="border-border">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Key className="w-5 h-5 text-[#01A0B6]" />
+                    Active Access Codes
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                    {accessCodes.length === 0 ? (
+                      <p className="text-muted-foreground text-sm text-center py-8">
+                        No access codes found
+                      </p>
+                    ) : (
+                      accessCodes.map((code) => (
+                        <div
+                          key={code.id}
+                          className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
+                        >
+                          <div>
+                            <code className="text-sm font-mono font-medium text-foreground">
+                              {code.code}
+                            </code>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Created {new Date(code.created_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-medium">
+                              <span className={code.uses_count >= code.total_limit ? "text-red-500" : "text-[#01A0B6]"}>
+                                {code.uses_count}
+                              </span>
+                              <span className="text-muted-foreground"> / {code.total_limit}</span>
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {code.uses_count >= code.total_limit ? "Limit reached" : "uses remaining"}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   )

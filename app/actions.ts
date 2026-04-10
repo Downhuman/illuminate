@@ -157,3 +157,76 @@ export async function getResponses(): Promise<{ responses: Response[]; error?: s
 export async function verifyAdminPassword(password: string): Promise<boolean> {
   return password === process.env.ADMIN_PASSWORD
 }
+
+// Access Code Management Types
+export type AccessCode = {
+  id: number
+  code: string
+  uses_count: number
+  total_limit: number
+  created_at: string
+}
+
+export async function getAccessCodes(): Promise<{ codes: AccessCode[]; error?: string }> {
+  if (!dbConfigured) {
+    return { codes: [], error: "Database not configured: POSTGRES_URL is missing" }
+  }
+
+  try {
+    const result = await sql`
+      SELECT 
+        id,
+        code,
+        uses_count,
+        total_limit,
+        created_at
+      FROM access_codes 
+      ORDER BY created_at DESC
+    `
+
+    return { codes: result as AccessCode[] }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error("[getAccessCodes] Database error:", errorMessage)
+    return { codes: [], error: `Failed to fetch access codes: ${errorMessage.substring(0, 100)}` }
+  }
+}
+
+export async function createAccessCode(
+  code: string,
+  totalLimit: number
+): Promise<{ success: boolean; error?: string }> {
+  if (!dbConfigured) {
+    return { success: false, error: "Database not configured: POSTGRES_URL is missing" }
+  }
+
+  if (!code || code.trim() === "") {
+    return { success: false, error: "Access code is required" }
+  }
+
+  if (!totalLimit || totalLimit < 1) {
+    return { success: false, error: "Usage limit must be at least 1" }
+  }
+
+  try {
+    // Check if code already exists
+    const existing = await sql`
+      SELECT id FROM access_codes WHERE code = ${code.trim().toUpperCase()}
+    `
+
+    if (existing.length > 0) {
+      return { success: false, error: "This access code already exists" }
+    }
+
+    await sql`
+      INSERT INTO access_codes (code, uses_count, total_limit, created_at)
+      VALUES (${code.trim().toUpperCase()}, 0, ${totalLimit}, NOW())
+    `
+
+    return { success: true }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error("[createAccessCode] Database error:", errorMessage)
+    return { success: false, error: `Failed to create access code: ${errorMessage.substring(0, 100)}` }
+  }
+}
