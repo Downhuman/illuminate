@@ -1,6 +1,6 @@
 "use server"
 
-import { sql } from "@/lib/db"
+import { sql, dbConfigured } from "@/lib/db"
 
 export type AccessCodeValidation = {
   valid: boolean
@@ -12,12 +12,15 @@ export async function validateAccessCode(code: string): Promise<AccessCodeValida
     return { valid: false, error: "Access code is required" }
   }
 
-  try {
-    // Check if database connection is configured
-    if (!process.env.POSTGRES_URL && !process.env.DATABASE_URL) {
-      return { valid: false, error: "Database connection not configured. Please contact support." }
+  // Check if database is configured before attempting query
+  if (!dbConfigured) {
+    return { 
+      valid: false, 
+      error: "ERROR: POSTGRES_URL environment variable is not set. Please configure the database connection." 
     }
+  }
 
+  try {
     const result = await sql`
       SELECT code, uses_count, total_limit 
       FROM access_codes 
@@ -25,22 +28,35 @@ export async function validateAccessCode(code: string): Promise<AccessCodeValida
     `
 
     if (result.length === 0) {
-      return { valid: false, error: "Invalid access code" }
+      return { valid: false, error: "Invalid access code. Please check your code and try again." }
     }
 
     const accessCode = result[0]
     
     if (accessCode.uses_count >= accessCode.total_limit) {
-      return { valid: false, error: "This access code has reached its usage limit" }
+      return { valid: false, error: "This access code has reached its usage limit. Please contact support." }
     }
 
     return { valid: true }
   } catch (error) {
-    console.error("[validateAccessCode] Database error:", error)
-    const errorMessage = error instanceof Error ? error.message : "Unknown error"
+    // Detailed error logging and user-friendly message
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error("[validateAccessCode] Database error:", errorMessage)
+    
+    // Return specific error details so the user can see what went wrong
+    if (errorMessage.includes("POSTGRES_URL")) {
+      return { valid: false, error: "Database not configured: POSTGRES_URL is missing" }
+    }
+    if (errorMessage.includes("connection") || errorMessage.includes("ECONNREFUSED")) {
+      return { valid: false, error: "Cannot connect to database. Please check POSTGRES_URL configuration." }
+    }
+    if (errorMessage.includes("does not exist")) {
+      return { valid: false, error: "Database table 'access_codes' not found. Please run migrations." }
+    }
+    
     return { 
       valid: false, 
-      error: `Database connection failed: ${errorMessage.includes("connection") ? "Unable to connect to database" : "Please try again"}` 
+      error: `Database error: ${errorMessage.substring(0, 100)}` 
     }
   }
 }

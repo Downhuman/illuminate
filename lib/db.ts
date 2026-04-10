@@ -1,10 +1,18 @@
 import { neon } from '@neondatabase/serverless'
 
-// Use POSTGRES_URL as primary, with DATABASE_URL as fallback
-const connectionString = process.env.POSTGRES_URL || process.env.DATABASE_URL
+// Strictly use POSTGRES_URL for Neon connection
+const connectionString = process.env.POSTGRES_URL
 
-if (!connectionString) {
-  console.error("[db] No database connection string found. Please set POSTGRES_URL or DATABASE_URL.")
-}
+// Export connection status for debugging
+export const dbConfigured = !!connectionString
 
-export const sql = neon(connectionString!)
+// Create SQL client - will throw at runtime if not configured
+export const sql = connectionString 
+  ? neon(connectionString)
+  : (() => {
+      // Return a mock function that throws a clear error
+      const notConfigured = () => {
+        throw new Error("POSTGRES_URL environment variable is not set")
+      }
+      return notConfigured as ReturnType<typeof neon>
+    })()
