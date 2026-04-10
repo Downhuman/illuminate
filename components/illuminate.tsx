@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import Image from "next/image"
 import { validateAccessCode, saveResponse } from "@/app/actions"
-import { masterDescriptors } from "@/lib/descriptors"
+import { masterDescriptors, pressureStatements } from "@/lib/descriptors"
 import {
   Radar,
   RadarChart,
@@ -1128,113 +1128,105 @@ const welcomeText = userData.name
       pdf.text(welcomeLines, pageWidth / 2, y + 14, { align: "center", maxWidth: contentWidth - 20 })
       y += 44
 
-      // ========== FIXED 2x2 GRID - NO SPRAWL ==========
+      // ========== RANKED PREFERENCES - SORTED BY SCORE (HIGH TO LOW) ==========
       const categories: Category[] = ["Generator", "Reflector", "Connector", "Ignitor"]
-      const colors: Record<Category, [number, number, number]> = {
-        Generator: [1, 160, 182],
-        Reflector: [21, 203, 217],
-        Connector: [178, 191, 197],
-        Ignitor: [209, 9, 128],
-      }
-
-      // Find highest score for dominant highlight
-      const highestScore = Math.max(...categories.map(c => scores[c]))
-      const lowestScore = Math.min(...categories.map(c => scores[c]))
       
-      // FIXED DIMENSIONS - Calculate available space and lock boxes
-      const footerHeight = 70 // Reserve space for footer
-      const flexSectionHeight = 55 // Reserve space for Flexing section
-      const availableHeight = pageHeight - y - margin - footerHeight - flexSectionHeight
+      // Sort by score descending (highest first)
+      const rankedCategories = [...categories].sort((a, b) => scores[b] - scores[a])
       
-      // 2x2 Grid with FIXED heights - no overflow
-      const boxW = (contentWidth - 8) / 2
-      const boxH = (availableHeight - 8) / 2 // Split available height equally
-      const boxGap = 8
+      // Add some top padding before preferences
+      y += 20
 
-      for (let i = 0; i < 4; i++) {
-        const category = categories[i]
-        const col = i % 2
-        const row = Math.floor(i / 2)
-        const boxX = margin + col * (boxW + boxGap)
-        const boxY = y + row * (boxH + boxGap)
+      // Render each preference ranked by score
+      for (const category of rankedCategories) {
+        const score = scores[category]
         
-        const isDominant = scores[category] === highestScore
-        const isLeastDominant = scores[category] === lowestScore
-        const imgOpacity = isLeastDominant ? 0.3 : 1.0
-
-        // Box background - FIXED HEIGHT, content must fit
+        // ===== PART A: SPLIT ROW =====
+        // Left column: 30% - Category name (Teal) + Image
+        const leftColW = contentWidth * 0.3
+        const rightColW = contentWidth * 0.7
+        const leftX = margin
+        const rightX = margin + leftColW + 8
+        
+        // Left column background
         pdf.setFillColor(18, 18, 18)
+        pdf.setDrawColor(45, 45, 45)
+        pdf.setLineWidth(1)
+        pdf.rect(leftX, y, leftColW, 100, "FD")
         
-        // Border - thick neon teal ONLY for dominant
-        if (isDominant) {
-          pdf.setDrawColor(0, 206, 209)
-          pdf.setLineWidth(3)
-        } else {
-          pdf.setDrawColor(45, 45, 45)
-          pdf.setLineWidth(1)
+        // Category name (Teal header)
+        pdf.setTextColor(1, 160, 182)
+        pdf.setFontSize(18)
+        pdf.setFont("centurygothic", "bold")
+        pdf.text(category, leftX + 8, y + 18)
+        
+        // Category image below name
+        try {
+          await drawImageWithOpacity(
+            PERSONALITY_IMAGES[category],
+            leftX + 8,
+            y + 28,
+            leftColW - 16,
+            50,
+            1.0
+          )
+        } catch {
+          // Silent fail
         }
         
-        pdf.roundedRect(boxX, boxY, boxW, boxH, 5, 5, "FD")
-
-        // === HEADER ROW: Name (left) + Score (right) ===
-        pdf.setTextColor(1, 160, 182)
-        pdf.setFontSize(14)
-        pdf.setFont("centurygothic", "bold")
-        pdf.text(category, boxX + 6, boxY + 15)
+        // Right column: 70% - Score + Full descriptor text with auto-height
+        pdf.setFillColor(18, 18, 18)
+        pdf.setDrawColor(45, 45, 45)
+        pdf.setLineWidth(1)
         
+        // Measure the text height to make right column auto-grow
+        const descText = masterDescriptors[category]
+        const descLines = pdf.splitTextToSize(descText, rightColW - 16)
+        const lineHeight = 1.3
+        const textHeight = descLines.length * (pdf.getFontSize() / 2) * lineHeight
+        const rightColHeight = Math.max(100, textHeight + 40) // Min 100, grow with text
+        
+        pdf.rect(rightX, y, rightColW, rightColHeight, "FD")
+        
+        // Score in top right
         pdf.setTextColor(255, 255, 255)
-        pdf.setFontSize(16)
+        pdf.setFontSize(20)
         pdf.setFont("centurygothic", "bold")
-        pdf.text(`${scores[category]}/40`, boxX + boxW - 45, boxY + 15)
-
-        // === IMAGE: Left side, below header ===
-        const imgW = 55
-        const imgH = 42
-        await drawImageWithOpacity(
-          PERSONALITY_IMAGES[category],
-          boxX + 4,
-          boxY + 22,
-          imgW,
-          imgH,
-          imgOpacity
-        )
-
-        // === NARRATIVE: Right of image, scaled to fit ===
-        const textX = boxX + imgW + 8
-        const textW = boxW - imgW - 14
-        const narrativeMaxLines = 6 // Lock to max lines
+        pdf.text(`${score}/40`, rightX + rightColW - 35, y + 20)
         
-        pdf.setTextColor(isLeastDominant ? 130 : 200, isLeastDominant ? 130 : 200, isLeastDominant ? 130 : 200)
-        pdf.setFontSize(8.5)
+        // Descriptor text below score
+        pdf.setTextColor(180, 180, 180)
+        pdf.setFontSize(9)
         pdf.setFont("centurygothic", "normal")
-        const narrativeLines = pdf.splitTextToSize(masterDescriptors[category], textW)
-        const clippedNarrative = narrativeLines.slice(0, narrativeMaxLines)
-        pdf.text(clippedNarrative, textX, boxY + 30, { lineHeightFactor: 1.2 })
-
-        // === UNDER PRESSURE: Fixed position at bottom of box ===
-        const pressureBoxH = 38
-        const pressureY = boxY + boxH - pressureBoxH - 4
+        pdf.text(descLines, rightX + 8, y + 40, { lineHeightFactor: lineHeight })
+        
+        // Move y down by the taller of the two columns
+        const partAHeight = Math.max(100, rightColHeight)
+        y += partAHeight + 2
+        
+        // ===== PART B: FULL-WIDTH PRESSURE BOX =====
+        const pressureText = pressureStatements[category]
+        const pressureLines = pdf.splitTextToSize(pressureText, contentWidth - 16)
+        const pressureHeight = pressureLines.length * (pdf.getFontSize() / 2) * 1.3 + 16
         
         pdf.setFillColor(22, 22, 22)
         pdf.setDrawColor(209, 9, 128)
-        pdf.setLineWidth(1.5)
-        pdf.roundedRect(boxX + 4, pressureY, boxW - 8, pressureBoxH, 3, 3, "FD")
-
+        pdf.setLineWidth(2)
+        pdf.roundedRect(margin, y, contentWidth, pressureHeight, 4, 4, "FD")
+        
         pdf.setTextColor(209, 9, 128)
-        pdf.setFontSize(7.5)
+        pdf.setFontSize(10)
         pdf.setFont("centurygothic", "bold")
-        pdf.text("BE MINDFUL UNDER PRESSURE...", boxX + 8, pressureY + 10)
-
-        pdf.setTextColor(165, 165, 165)
-        pdf.setFontSize(7.5)
-        pdf.setFont("centurygothic", "normal")
-        const pressureLines = pdf.splitTextToSize(categoryDescriptions[category].underPressure, boxW - 18)
-        const clippedPressure = pressureLines.slice(0, 2) // Max 2 lines
-        pdf.text(clippedPressure, boxX + 8, pressureY + 20, { lineHeightFactor: 1.15 })
+        pdf.text(pressureText, margin + 8, y + 12, { maxWidth: contentWidth - 16, lineHeightFactor: 1.3 })
+        
+        y += pressureHeight + 12
       }
 
-      // Move y past the grid
-      y += 2 * boxH + boxGap + 10
+      // Add new page if content is getting too long
+      if (y > pageHeight - 120) {
+        pdf.addPage()
+        y = margin
+      }
 
       // ========== FLEXING YOUR APPROACH - FIXED POSITION ==========
       pdf.setTextColor(1, 160, 182)

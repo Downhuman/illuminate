@@ -1,14 +1,14 @@
 import { Illuminate } from "@/components/illuminate"
 
 /**
- * v2.1.0 - Data Integrity & Admin Control Overhaul
- * ✓ Live response counting (truth engine) - actual count from responses table
- * ✓ Editable access code limits with save/delete controls in admin portal
- * ✓ PDF typography update: Century Gothic throughout, teal headers
- * ✓ Master descriptors with exact content (no truncation)
- * ✓ 40px fixed logo height, JPEG compression (scale:2, quality:0.8)
- * ✓ Red highlight for codes at limit in admin portal
- * ✓ Advanced admin access code management interface
+ * v2.2.0 - PDF Perfection Overhaul
+ * ✓ Completely rebuilt PDF layout with ranked preferences (highest score first)
+ * ✓ New split-row design: 30% left (name+image) | 70% right (score+full descriptor)
+ * ✓ Full-width pressure boxes with exact "BE MINDFUL" statements per spec
+ * ✓ Auto-height text containers (no clipping/truncation)
+ * ✓ All headers teal regardless of score
+ * ✓ Century Gothic throughout, 40px logo, exact master descriptors
+ * ✓ Automatic page break when content exceeds page height
  */
 export default function Page() {
   return <Illuminate />
