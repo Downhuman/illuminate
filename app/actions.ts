@@ -290,3 +290,21 @@ export async function deleteAccessCode(codeId: number): Promise<{ success: boole
     return { success: false, error: `Failed to delete access code: ${errorMessage.substring(0, 100)}` }
   }
 }
+
+export async function deleteResponse(responseId: number): Promise<{ success: boolean; error?: string }> {
+  if (!dbConfigured) {
+    return { success: false, error: "Database not configured: POSTGRES_URL is missing" }
+  }
+
+  try {
+    await sql`
+      DELETE FROM responses 
+      WHERE id = ${responseId}
+    `
+    return { success: true }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error("[deleteResponse] Database error:", errorMessage)
+    return { success: false, error: `Failed to delete response: ${errorMessage.substring(0, 100)}` }
+  }
+}

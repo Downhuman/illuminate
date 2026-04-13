@@ -13,8 +13,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Lock, Download, Search, LogOut, Loader2, ArrowUpDown, ChevronLeft, ChevronRight, Plus, Key, Save, Trash2 } from "lucide-react"
-import { verifyAdminPassword, getResponses, getAccessCodes, createAccessCode, countResponsesForAccessCode, updateAccessCodeLimit, deleteAccessCode, type Response, type AccessCode } from "@/app/actions"
+import { verifyAdminPassword, getResponses, getAccessCodes, createAccessCode, countResponsesForAccessCode, updateAccessCodeLimit, deleteAccessCode, deleteResponse, type Response, type AccessCode } from "@/app/actions"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 const ITEMS_PER_PAGE = 20
@@ -26,9 +33,11 @@ export default function AdminPortal() {
   const [error, setError] = useState<string | null>(null)
   const [responses, setResponses] = useState<Response[]>([])
   const [searchQuery, setSearchQuery] = useState("")
+  const [selectedCompany, setSelectedCompany] = useState<string>("all")
   const [sortField, setSortField] = useState<keyof Response>("created_at")
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc")
   const [currentPage, setCurrentPage] = useState(1)
+  const [deletingResponseId, setDeletingResponseId] = useState<number | null>(null)
   
   // Access codes state
   const [accessCodes, setAccessCodes] = useState<AccessCode[]>([])
@@ -155,6 +164,13 @@ export default function AdminPortal() {
     setResponses([])
   }
 
+  const uniqueCompanies = useMemo(() => {
+    const companies = responses
+      .map(r => r.company)
+      .filter((c): c is string => c !== null && c !== undefined && c.trim() !== "")
+    return [...new Set(companies)].sort()
+  }, [responses])
+
   const handleSort = (field: keyof Response) => {
     if (field === sortField) {
       setSortDirection(sortDirection === "asc" ? "desc" : "asc")
@@ -165,15 +181,35 @@ export default function AdminPortal() {
     setCurrentPage(1)
   }
 
+  const handleDeleteResponse = async (responseId: number) => {
+    if (!confirm("Are you sure you want to delete this response? This action cannot be undone.")) {
+      return
+    }
+
+    setDeletingResponseId(responseId)
+    const result = await deleteResponse(responseId)
+    
+    if (result.success) {
+      setResponses(responses.filter(r => r.id !== responseId))
+    } else {
+      setError(result.error || "Failed to delete response")
+    }
+    
+    setDeletingResponseId(null)
+  }
+
   const filteredAndSortedResponses = useMemo(() => {
     let filtered = responses.filter((response) => {
       const query = searchQuery.toLowerCase()
-      return (
+      const matchesSearch =
         response.name?.toLowerCase().includes(query) ||
         response.email?.toLowerCase().includes(query) ||
         response.company?.toLowerCase().includes(query) ||
         response.access_code?.toLowerCase().includes(query)
-      )
+
+      const matchesCompany = selectedCompany === "all" || response.company === selectedCompany
+
+      return matchesSearch && matchesCompany
     })
 
     filtered.sort((a, b) => {
@@ -196,7 +232,7 @@ export default function AdminPortal() {
     })
 
     return filtered
-  }, [responses, searchQuery, sortField, sortDirection])
+  }, [responses, searchQuery, sortField, sortDirection, selectedCompany])
 
   const totalPages = Math.ceil(filteredAndSortedResponses.length / ITEMS_PER_PAGE)
   const paginatedResponses = filteredAndSortedResponses.slice(
@@ -243,7 +279,14 @@ export default function AdminPortal() {
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
     const link = document.createElement("a")
     link.href = URL.createObjectURL(blob)
-    link.download = `illuminate-responses-${new Date().toISOString().split("T")[0]}.csv`
+    
+    // Generate dynamic filename based on company filter
+    const date = new Date().toISOString().split("T")[0]
+    const filename = selectedCompany === "all" 
+      ? `illuminate_responses_${date}.csv`
+      : `illuminate_responses_${selectedCompany}_${date}.csv`
+    
+    link.download = filename
     link.click()
   }
 
@@ -366,6 +409,19 @@ export default function AdminPortal() {
               className="pl-10 bg-background"
             />
           </div>
+          <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+            <SelectTrigger className="w-full sm:w-48 bg-background border-border">
+              <SelectValue placeholder="Filter by Company" />
+            </SelectTrigger>
+            <SelectContent className="bg-background border-border">
+              <SelectItem value="all">All Companies</SelectItem>
+              {uniqueCompanies.map((company) => (
+                <SelectItem key={company} value={company}>
+                  {company}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button
             onClick={exportToCSV}
             disabled={filteredAndSortedResponses.length === 0}
@@ -439,6 +495,7 @@ export default function AdminPortal() {
                       <ArrowUpDown className="w-3 h-3" />
                     </div>
                   </TableHead>
+                  <TableHead className="text-center">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -446,7 +503,7 @@ export default function AdminPortal() {
                   {paginatedResponses.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={9}
+                        colSpan={10}
                         className="text-center py-12 text-muted-foreground"
                       >
                         {searchQuery
@@ -489,6 +546,21 @@ export default function AdminPortal() {
                         </TableCell>
                         <TableCell className="text-muted-foreground text-sm">
                           {formatDate(response.created_at)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteResponse(response.id)}
+                            disabled={deletingResponseId === response.id}
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                          >
+                            {deletingResponseId === response.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </Button>
                         </TableCell>
                       </motion.tr>
                     ))
