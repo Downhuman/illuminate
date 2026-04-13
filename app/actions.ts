@@ -308,3 +308,27 @@ export async function deleteResponse(responseId: number): Promise<{ success: boo
     return { success: false, error: `Failed to delete response: ${errorMessage.substring(0, 100)}` }
   }
 }
+
+export async function bulkDeleteResponses(responseIds: number[]): Promise<{ success: boolean; deletedCount?: number; error?: string }> {
+  if (!dbConfigured) {
+    return { success: false, error: "Database not configured: POSTGRES_URL is missing" }
+  }
+
+  if (!responseIds || responseIds.length === 0) {
+    return { success: false, error: "No responses selected for deletion" }
+  }
+
+  try {
+    // Use parameterized query to safely delete multiple IDs
+    const placeholders = responseIds.map((_, i) => `$${i + 1}`).join(",")
+    const query = `DELETE FROM responses WHERE id IN (${placeholders})`
+    
+    await sql.unsafe(query, responseIds)
+    
+    return { success: true, deletedCount: responseIds.length }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error("[bulkDeleteResponses] Database error:", errorMessage)
+    return { success: false, error: `Failed to delete responses: ${errorMessage.substring(0, 100)}` }
+  }
+}
