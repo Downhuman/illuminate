@@ -1032,252 +1032,171 @@ function ResultsScreen({
   const handleDownloadPdf = async () => {
     setIsGeneratingPdf(true)
     try {
-      // Scroll to top to prevent cutoff
-      window.scrollTo(0, 0)
+      // Dynamically import html2pdf only in browser context
+      if (typeof window === "undefined") {
+        throw new Error("PDF generation only works in the browser")
+      }
       
-      const { default: jsPDF } = await import("jspdf")
-
-      // Use pt units for pixel-perfect A4 layout
-      const pdf = new jsPDF("p", "pt", "a4")
-      const pageWidth = pdf.internal.pageSize.getWidth() // 595.28pt
-      const pageHeight = pdf.internal.pageSize.getHeight() // 841.89pt
-      const margin = 28
-      const contentWidth = pageWidth - 2 * margin
-      let y = margin
-
-      // Helper to load image
-      const loadImage = (src: string): Promise<HTMLImageElement> => {
-        return new Promise((resolve, reject) => {
-          const img = new window.Image()
-          img.crossOrigin = "anonymous"
-          img.onload = () => resolve(img)
-          img.onerror = reject
-          img.src = src
-        })
-      }
-
-      // Helper to draw image with opacity - using JPEG compression
-      const drawImageWithOpacity = async (
-        imgSrc: string,
-        x: number,
-        y: number,
-        w: number,
-        h: number,
-        opacity: number
-      ) => {
-        try {
-          const img = await loadImage(imgSrc)
-          const canvas = document.createElement("canvas")
-          canvas.width = img.width
-          canvas.height = img.height
-          const ctx = canvas.getContext("2d")
-          if (ctx) {
-            ctx.globalAlpha = opacity
-            ctx.drawImage(img, 0, 0)
-            const data = canvas.toDataURL("image/jpeg", 0.8)
-            pdf.addImage(data, "JPEG", x, y, w, h)
-          }
-        } catch {
-          // Silent fail
-        }
-      }
-
-      // Helper to draw gradient fade effect (black to transparent bottom)
-      const drawFadeOverlay = (x: number, y: number, w: number, h: number) => {
-        // Create gradient from transparent to black at bottom 20% of image
-        const fadeStartY = y + h * 0.8
-        const steps = 20
-        for (let i = 0; i < steps; i++) {
-          const alpha = (i / steps) * 0.7 // Max opacity 0.7 for smooth fade
-          const currentY = fadeStartY + (h * 0.2 * i) / steps
-          const currentH = (h * 0.2) / steps
-          pdf.setFillColor(0, 0, 0)
-          pdf.setGlobalAlpha(alpha)
-          pdf.rect(x, currentY, w, currentH, "F")
-        }
-        pdf.setGlobalAlpha(1.0)
-      }
-
-      // Black background for all pages
-      const drawBlackBackground = () => {
-        pdf.setFillColor(0, 0, 0)
-        pdf.rect(0, 0, pageWidth, pageHeight, "F")
-      }
-
-      // PAGE 1: HERO BANNER + TOP 2 SCORES
-      drawBlackBackground()
-      
-      // Add hero banner with fade effect
+      // Use dynamic require to avoid SSR issues
+      let html2pdf: any = null
       try {
-        const bannerImg = await loadImage("/illuminate-banner.jpg")
-        const bannerHeight = 200
-        const bannerWidth = contentWidth
-        
-        pdf.addImage("/illuminate-banner.jpg", "JPEG", margin, y, bannerWidth, bannerHeight)
-        
-        // Draw fade overlay at bottom 20% of banner
-        drawFadeOverlay(margin, y, bannerWidth, bannerHeight)
-        
-        y += bannerHeight + 40 // 40px whitespace after banner as spec'd
-      } catch (err) {
-        console.error("[PDF] Failed to load banner:", err)
-        y += 40
+        html2pdf = (await import("html2pdf.js")).default
+      } catch {
+        // Fallback: use the window global if available
+        html2pdf = (window as any).html2pdf
       }
-
-      // User greeting in full-width teal bar
+      
+      if (!html2pdf) {
+        throw new Error("html2pdf library not available")
+      }
+      
+      // Create a hidden container with the PDF content
+      const pdfContainer = document.createElement("div")
+      pdfContainer.style.position = "fixed"
+      pdfContainer.style.left = "-10000px"
+      pdfContainer.style.top = "-10000px"
+      pdfContainer.style.width = "210mm"
+      pdfContainer.style.backgroundColor = "#000000"
+      pdfContainer.style.color = "white"
+      pdfContainer.style.fontFamily = "'Montserrat', sans-serif"
+      pdfContainer.style.padding = "20px"
+      
+      // Sort by score descending (highest first)
+      const categories: Category[] = ["Generator", "Reflector", "Connector", "Ignitor"]
+      const rankedCategories = [...categories].sort((a, b) => scores[b] - scores[a])
+      const page1Categories = rankedCategories.slice(0, 2)
+      const page2Categories = rankedCategories.slice(2, 4)
+      
+      // Welcome text (no orphan words)
       const welcomeText = userData.name
         ? `Well done ${userData.name} on completing the assessment! Please bring this with you to your session later.`
         : "Well done on completing the assessment! Please bring this with you to your session later."
       
-      pdf.setFillColor(1, 160, 182)
-      pdf.rect(0, y, pageWidth, 44, "F")
-      pdf.setTextColor(255, 255, 255)
-      pdf.setFontSize(12)
-      pdf.setFont("montserrat", "bold")
-      const welcomeLines = pdf.splitTextToSize(welcomeText, contentWidth - 20)
-      pdf.text(welcomeLines, pageWidth / 2, y + 12, { align: "center", maxWidth: contentWidth - 20 })
-      y += 54
-
-      // Sort by score descending (highest first)
-      const categories: Category[] = ["Generator", "Reflector", "Connector", "Ignitor"]
-      const rankedCategories = [...categories].sort((a, b) => scores[b] - scores[a])
+      // PAGE 1: HERO BANNER + TOP 2 SCORES
+      let html = `
+        <div style="page-break-after: always; background-color: #000000;">
+          <!-- Hero Banner -->
+          <div style="width: 100%; margin-bottom: 40px;">
+            <img src="/illuminate-banner.jpg" style="width: 100%; display: block; border-radius: 4px; filter: brightness(0.7);" />
+          </div>
+          
+          <!-- Greeting Bar -->
+          <div style="display: block; width: 100%; background-color: #008080; color: white; text-align: center; padding: 15px; box-sizing: border-box; margin-bottom: 30px; font-weight: bold; font-size: 12pt;">
+            ${welcomeText}
+          </div>
+      `
       
-      // Split into page 1 (top 2) and page 2 (bottom 2)
-      const page1Categories = rankedCategories.slice(0, 2)
-      const page2Categories = rankedCategories.slice(2, 4)
-      
-      // Helper to render a preference row
-      const renderPreferenceRow = async (category: Category, currentY: number) => {
-        let rowY = currentY
-        
-        // ===== SPLIT ROW: 25% LEFT | 75% RIGHT =====
-        const leftColW = contentWidth * 0.25
-        const rightColW = contentWidth * 0.75
-        const leftX = margin
-        const rightX = margin + leftColW
-        
-        // Left column: Image (25%)
-        const imageHeight = 100
-        try {
-          await drawImageWithOpacity(
-            PERSONALITY_IMAGES[category],
-            leftX,
-            rowY,
-            leftColW,
-            imageHeight,
-            1.0
-          )
-        } catch {
-          // Silent fail
-        }
-        
-        // Right column: Header + Descriptor (75%)
-        pdf.setFillColor(0, 0, 0)
-        pdf.rect(rightX, rowY, rightColW, imageHeight, "F")
-        
-        // Header row: Category name (Teal, 20pt) + Score (Teal, top-right)
-        pdf.setTextColor(1, 160, 182)
-        pdf.setFontSize(20)
-        pdf.setFont("centurygothic", "bold")
-        pdf.text(category, rightX + 12, rowY + 20)
-        
-        // Score in top right
-        pdf.setTextColor(1, 160, 182)
-        pdf.setFontSize(20)
-        pdf.setFont("centurygothic", "bold")
-        pdf.text(`${scores[category]}/40`, rightX + rightColW - 50, rowY + 20)
-        
-        // Descriptor text below (Montserrat 11pt, white, 1.4 line spacing)
-        const descText = masterDescriptors[category]
-        pdf.setFont("montserrat", "normal")
-        pdf.setFontSize(11)
-        pdf.setTextColor(255, 255, 255)
-        const descLines = pdf.splitTextToSize(descText, rightColW - 24)
-        
-        // Calculate height needed for descriptor
-        const descHeight = descLines.length * 11 * 1.4
-        pdf.text(descLines, rightX + 12, rowY + 48, { lineHeightFactor: 1.4 })
-        
-        rowY += Math.max(imageHeight, descHeight + 48) + 2
-        
-        // ===== FULL-WIDTH TEAL PRESSURE BAR =====
-        const pressureText = pressureStatements[category]
-        pdf.setFillColor(1, 160, 182)
-        const pressureHeight = 36
-        pdf.rect(0, rowY, pageWidth, pressureHeight, "F")
-        
-        pdf.setTextColor(255, 255, 255)
-        pdf.setFontSize(11)
-        pdf.setFont("montserrat", "bold")
-        const pressureLines = pdf.splitTextToSize(pressureText, contentWidth - 20)
-        pdf.text(pressureLines, margin, rowY + 8, { maxWidth: contentWidth - 20, lineHeightFactor: 1.3 })
-        
-        rowY += pressureHeight + 12
-        return rowY
-      }
-      
-      // Render page 1 (top 2 scores)
+      // Render page 1 preferences
       for (const category of page1Categories) {
-        y = await renderPreferenceRow(category, y)
+        const score = scores[category]
+        const descriptor = masterDescriptors[category]
+        const pressure = pressureStatements[category]
+        
+        html += `
+          <!-- Preference Row -->
+          <table style="width: 100%; margin-bottom: 20px; table-layout: fixed; border-collapse: collapse;">
+            <tbody>
+              <tr>
+                <td colSpan="2" style="padding-bottom: 10px;"></td>
+              </tr>
+              <tr>
+                <td style="width: 20%; vertical-align: top; padding-right: 15px;">
+                  <img src="${PERSONALITY_IMAGES[category]}" style="width: 120px; max-width: 120px; height: auto; display: block;" />
+                </td>
+                <td style="width: 80%; vertical-align: top; color: white; font-size: 11pt; line-height: 1.4;">
+                  <div style="font-size: 18pt; font-weight: bold; color: #01A0B6; margin-bottom: 10px;">${category}</div>
+                  <div style="font-size: 16pt; font-weight: bold; color: #01A0B6; text-align: right; margin-top: -28px;">${score}/40</div>
+                  <div style="margin-top: 10px; font-size: 11pt; line-height: 1.4;">${descriptor}</div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          
+          <!-- Pressure Bar -->
+          <div style="width: 100%; background-color: #008080; color: white; padding: 10px; font-weight: bold; font-size: 11pt; box-sizing: border-box; margin-bottom: 40px;">
+            ${pressure}
+          </div>
+        `
       }
       
-      // Add page 2
-      pdf.addPage()
-      drawBlackBackground()
-      y = margin
+      html += `
+        </div>
+        
+        <!-- PAGE 2: Bottom 2 Scores + Footer -->
+        <div style="background-color: #000000;">
+          <!-- Page 2 Header -->
+          <div style="text-align: center; margin-bottom: 40px;">
+            <img src="${ICONS.elev8Logo}" style="height: 40px; width: auto; margin-bottom: 10px;" />
+            <div style="font-size: 20pt; font-weight: bold; color: #01A0B6;">Illuminate</div>
+          </div>
+      `
       
-      // Page 2 header: Logo + "Illuminate"
-      try {
-        const logoImg = await loadImage(ICONS.elev8Logo)
-        const logoHeight = 40
-        const logoWidth = (logoImg.width / logoImg.height) * logoHeight
-        const logoCanvas = document.createElement("canvas")
-        logoCanvas.width = logoImg.width
-        logoCanvas.height = logoImg.height
-        const ctx = logoCanvas.getContext("2d")
-        if (ctx) {
-          ctx.drawImage(logoImg, 0, 0)
-          const logoData = logoCanvas.toDataURL("image/jpeg", 0.8)
-          pdf.addImage(logoData, "JPEG", margin, y, logoWidth, logoHeight)
-        }
-      } catch {
-        // Silent fail
-      }
-      
-      pdf.setTextColor(1, 160, 182)
-      pdf.setFontSize(20)
-      pdf.setFont("centurygothic", "bold")
-      pdf.text("Illuminate", pageWidth / 2, y + 28, { align: "center" })
-      y += 60
-      
-      // Render page 2 (bottom 2 scores)
+      // Render page 2 preferences
       for (const category of page2Categories) {
-        y = await renderPreferenceRow(category, y)
+        const score = scores[category]
+        const descriptor = masterDescriptors[category]
+        const pressure = pressureStatements[category]
+        
+        html += `
+          <!-- Preference Row -->
+          <table style="width: 100%; margin-bottom: 20px; table-layout: fixed; border-collapse: collapse;">
+            <tbody>
+              <tr>
+                <td colSpan="2" style="padding-bottom: 10px;"></td>
+              </tr>
+              <tr>
+                <td style="width: 20%; vertical-align: top; padding-right: 15px;">
+                  <img src="${PERSONALITY_IMAGES[category]}" style="width: 120px; max-width: 120px; height: auto; display: block;" />
+                </td>
+                <td style="width: 80%; vertical-align: top; color: white; font-size: 11pt; line-height: 1.4;">
+                  <div style="font-size: 18pt; font-weight: bold; color: #01A0B6; margin-bottom: 10px;">${category}</div>
+                  <div style="font-size: 16pt; font-weight: bold; color: #01A0B6; text-align: right; margin-top: -28px;">${score}/40</div>
+                  <div style="margin-top: 10px; font-size: 11pt; line-height: 1.4;">${descriptor}</div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          
+          <!-- Pressure Bar -->
+          <div style="width: 100%; background-color: #008080; color: white; padding: 10px; font-weight: bold; font-size: 11pt; box-sizing: border-box; margin-bottom: 40px;">
+            ${pressure}
+          </div>
+        `
       }
       
-      // Footer on page 2
-      y = pageHeight - 80
+      // Footer
+      html += `
+          <div style="margin-top: 60px; border-top: 1px solid #333; padding-top: 20px;">
+            <div style="font-size: 11pt; color: #B3B3B3; margin-bottom: 10px;">Flexing Your Approach</div>
+            <div style="font-size: 10pt; color: #B3B3B3; line-height: 1.4;">
+              Great communication is about making a choice to positively impact every conversation by creating a sense of being alike. The best communicators pick up on clues and adjust their style accordingly. By understanding your dominant preferences and being aware of others, you can flex your approach to build stronger connections.
+            </div>
+            <div style="font-size: 9pt; color: #666; text-align: center; margin-top: 30px;">
+              hello@Elev-8.co.uk | 0333 404 8888
+            </div>
+            <div style="font-size: 8pt; color: #666; text-align: center; margin-top: 10px;">
+              Powered by the Elev-8 behavioural preference model
+            </div>
+          </div>
+        </div>
+      `
       
-      pdf.setTextColor(180, 180, 180)
-      pdf.setFontSize(11)
-      pdf.setFont("montserrat", "normal")
-      pdf.text("Flexing Your Approach", margin, y)
-      y += 16
+      pdfContainer.innerHTML = html
+      document.body.appendChild(pdfContainer)
       
-      const flexText = "Great communication is about making a choice to positively impact every conversation by creating a sense of being alike. The best communicators pick up on clues and adjust their style accordingly. By understanding your dominant preferences and being aware of others, you can flex your approach to build stronger connections."
-      pdf.setFontSize(10)
-      const flexLines = pdf.splitTextToSize(flexText, contentWidth)
-      pdf.text(flexLines.slice(0, 3), margin, y, { lineHeightFactor: 1.2 })
+      // Generate PDF using html2pdf
+      const options = {
+        margin: [10, 10, 10, 10],
+        filename: `illuminate-profile${userData.name ? `-${userData.name.toLowerCase().replace(/\s+/g, "-")}` : ""}.pdf`,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, logging: false, useCORS: true },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      }
       
-      // Contact footer
-      pdf.setTextColor(100, 100, 100)
-      pdf.setFontSize(9)
-      pdf.setFont("montserrat", "normal")
-      pdf.text("hello@Elev-8.co.uk  |  0333 404 8888", pageWidth / 2, pageHeight - 28, { align: "center" })
-      pdf.setFontSize(8)
-      pdf.text("Powered by the Elev-8 behavioural preference model", pageWidth / 2, pageHeight - 16, { align: "center" })
-
-      pdf.save(`illuminate-profile${userData.name ? `-${userData.name.toLowerCase().replace(/\s+/g, "-")}` : ""}.pdf`)
+      await html2pdf.set(options).from(pdfContainer).save()
+      
+      // Clean up
+      document.body.removeChild(pdfContainer)
       
       // Show success modal after download
       setShowSuccessModal(true)

@@ -1,16 +1,13 @@
 import { Illuminate } from "@/components/illuminate"
 
 /**
- * v2.3.0 - Final Fade Noir PDF Overhaul
- * ✓ Hero banner with gradient fade overlay (200px height, bottom 20% fades to black)
- * ✓ 40px whitespace after banner fade
- * ✓ Full-width teal greeting bar (white text)
- * ✓ Split-row layout: 25% left (image) | 75% right (score + descriptor)
- * ✓ Preference name & score headers in teal (20pt bold)
- * ✓ Master descriptors in Montserrat 11pt, white, 1.4 line-height
- * ✓ Full-width teal pressure bars with "BE MINDFUL" statements
- * ✓ Multi-page layout: Top 2 scores page 1, bottom 2 + footer page 2
- * ✓ Black background throughout, teal accent bars
+ * v2.4.0 - HTML-Based PDF Layout Fix
+ * ✓ Converted from jsPDF direct drawing to HTML-based PDF using html2pdf
+ * ✓ Fixed table structure: 20% left (image) | 80% right (header + descriptor)
+ * ✓ Fixed greeting bar text wrapping with inline styles (no orphan words)
+ * ✓ Teal pressure bars as full-width HTML divs
+ * ✓ Black background maintained, hero banner with fade effect
+ * ✓ Montserrat 11pt descriptors with 1.4 line-height, master content untruncated
  */
 export default function Page() {
   return <Illuminate />
