@@ -1032,173 +1032,167 @@ function ResultsScreen({
   const handleDownloadPdf = async () => {
     setIsGeneratingPdf(true)
     try {
-      // Dynamically import html2pdf only in browser context
-      if (typeof window === "undefined") {
-        throw new Error("PDF generation only works in the browser")
+      // Dynamic import of jsPDF - only runs in browser
+      const { default: jsPDF } = await import("jspdf")
+      
+      const pdf = new jsPDF("p", "pt", "a4")
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      const margin = 28
+      const contentWidth = pageWidth - 2 * margin
+
+      // Helper to load image
+      const loadImage = (src: string): Promise<HTMLImageElement> => {
+        return new Promise((resolve, reject) => {
+          const img = new window.Image()
+          img.crossOrigin = "anonymous"
+          img.onload = () => resolve(img)
+          img.onerror = reject
+          img.src = src
+        })
       }
-      
-      // Use dynamic require to avoid SSR issues
-      let html2pdf: any = null
-      try {
-        html2pdf = (await import("html2pdf.js")).default
-      } catch {
-        // Fallback: use the window global if available
-        html2pdf = (window as any).html2pdf
+
+      // Helper to add image to PDF
+      const addImageToPdf = async (src: string, x: number, y: number, w: number, h: number) => {
+        try {
+          const img = await loadImage(src)
+          const canvas = document.createElement("canvas")
+          canvas.width = img.width
+          canvas.height = img.height
+          const ctx = canvas.getContext("2d")
+          if (ctx) {
+            ctx.drawImage(img, 0, 0)
+            const data = canvas.toDataURL("image/jpeg", 0.85)
+            pdf.addImage(data, "JPEG", x, y, w, h)
+          }
+        } catch {
+          // Silent fail for missing images
+        }
       }
-      
-      if (!html2pdf) {
-        throw new Error("html2pdf library not available")
-      }
-      
-      // Create a hidden container with the PDF content
-      const pdfContainer = document.createElement("div")
-      pdfContainer.style.position = "fixed"
-      pdfContainer.style.left = "-10000px"
-      pdfContainer.style.top = "-10000px"
-      pdfContainer.style.width = "210mm"
-      pdfContainer.style.backgroundColor = "#000000"
-      pdfContainer.style.color = "white"
-      pdfContainer.style.fontFamily = "'Montserrat', sans-serif"
-      pdfContainer.style.padding = "20px"
-      
-      // Sort by score descending (highest first)
+
+      // Sort by score descending
       const categories: Category[] = ["Generator", "Reflector", "Connector", "Ignitor"]
       const rankedCategories = [...categories].sort((a, b) => scores[b] - scores[a])
       const page1Categories = rankedCategories.slice(0, 2)
       const page2Categories = rankedCategories.slice(2, 4)
-      
-      // Welcome text (no orphan words)
+
+      // Welcome text
       const welcomeText = userData.name
         ? `Well done ${userData.name} on completing the assessment! Please bring this with you to your session later.`
         : "Well done on completing the assessment! Please bring this with you to your session later."
-      
-      // PAGE 1: HERO BANNER + TOP 2 SCORES
-      let html = `
-        <div style="page-break-after: always; background-color: #000000;">
-          <!-- Hero Banner -->
-          <div style="width: 100%; margin-bottom: 40px;">
-            <img src="/illuminate-banner.jpg" style="width: 100%; display: block; border-radius: 4px; filter: brightness(0.7);" />
-          </div>
-          
-          <!-- Greeting Bar -->
-          <div style="display: block; width: 100%; background-color: #008080; color: white; text-align: center; padding: 15px; box-sizing: border-box; margin-bottom: 30px; font-weight: bold; font-size: 12pt;">
-            ${welcomeText}
-          </div>
-      `
-      
-      // Render page 1 preferences
+
+      // Helper to render a preference row
+      const renderPreferenceRow = async (category: Category, startY: number): Promise<number> => {
+        let y = startY
+        const leftColW = 100 // Fixed image width
+        const rightColX = margin + leftColW + 12
+        const rightColW = contentWidth - leftColW - 12
+
+        // Draw category image (left column, 20%)
+        await addImageToPdf(PERSONALITY_IMAGES[category], margin, y, leftColW, 80)
+
+        // Category name (teal, bold)
+        pdf.setTextColor(1, 160, 182)
+        pdf.setFontSize(18)
+        pdf.setFont("helvetica", "bold")
+        pdf.text(category, rightColX, y + 18)
+
+        // Score (teal, top-right of right column)
+        const scoreText = `${scores[category]}/40`
+        pdf.text(scoreText, margin + contentWidth - 10, y + 18, { align: "right" })
+
+        // Descriptor text (white, wrapped)
+        pdf.setTextColor(255, 255, 255)
+        pdf.setFontSize(10)
+        pdf.setFont("helvetica", "normal")
+        const descLines = pdf.splitTextToSize(masterDescriptors[category], rightColW)
+        pdf.text(descLines, rightColX, y + 40, { lineHeightFactor: 1.4 })
+
+        // Calculate height used by text
+        const textHeight = descLines.length * 10 * 1.4
+        const rowHeight = Math.max(85, textHeight + 45)
+        y += rowHeight
+
+        // Full-width teal pressure bar
+        pdf.setFillColor(1, 160, 182)
+        pdf.rect(0, y, pageWidth, 32, "F")
+
+        pdf.setTextColor(255, 255, 255)
+        pdf.setFontSize(9)
+        pdf.setFont("helvetica", "bold")
+        const pressureLines = pdf.splitTextToSize(pressureStatements[category], contentWidth - 20)
+        pdf.text(pressureLines, margin, y + 12, { lineHeightFactor: 1.2 })
+
+        return y + 45
+      }
+
+      // ========== PAGE 1 ==========
+      pdf.setFillColor(0, 0, 0)
+      pdf.rect(0, 0, pageWidth, pageHeight, "F")
+
+      let y = margin
+
+      // Hero banner
+      await addImageToPdf("/illuminate-banner.jpg", margin, y, contentWidth, 160)
+      y += 200
+
+      // Greeting bar (teal)
+      pdf.setFillColor(1, 160, 182)
+      pdf.rect(0, y, pageWidth, 40, "F")
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(11)
+      pdf.setFont("helvetica", "bold")
+      const welcomeLines = pdf.splitTextToSize(welcomeText, contentWidth - 20)
+      pdf.text(welcomeLines, pageWidth / 2, y + 14, { align: "center" })
+      y += 55
+
+      // Top 2 preferences
       for (const category of page1Categories) {
-        const score = scores[category]
-        const descriptor = masterDescriptors[category]
-        const pressure = pressureStatements[category]
-        
-        html += `
-          <!-- Preference Row -->
-          <table style="width: 100%; margin-bottom: 20px; table-layout: fixed; border-collapse: collapse;">
-            <tbody>
-              <tr>
-                <td colSpan="2" style="padding-bottom: 10px;"></td>
-              </tr>
-              <tr>
-                <td style="width: 20%; vertical-align: top; padding-right: 15px;">
-                  <img src="${PERSONALITY_IMAGES[category]}" style="width: 120px; max-width: 120px; height: auto; display: block;" />
-                </td>
-                <td style="width: 80%; vertical-align: top; color: white; font-size: 11pt; line-height: 1.4;">
-                  <div style="font-size: 18pt; font-weight: bold; color: #01A0B6; margin-bottom: 10px;">${category}</div>
-                  <div style="font-size: 16pt; font-weight: bold; color: #01A0B6; text-align: right; margin-top: -28px;">${score}/40</div>
-                  <div style="margin-top: 10px; font-size: 11pt; line-height: 1.4;">${descriptor}</div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          
-          <!-- Pressure Bar -->
-          <div style="width: 100%; background-color: #008080; color: white; padding: 10px; font-weight: bold; font-size: 11pt; box-sizing: border-box; margin-bottom: 40px;">
-            ${pressure}
-          </div>
-        `
+        y = await renderPreferenceRow(category, y)
       }
-      
-      html += `
-        </div>
-        
-        <!-- PAGE 2: Bottom 2 Scores + Footer -->
-        <div style="background-color: #000000;">
-          <!-- Page 2 Header -->
-          <div style="text-align: center; margin-bottom: 40px;">
-            <img src="${ICONS.elev8Logo}" style="height: 40px; width: auto; margin-bottom: 10px;" />
-            <div style="font-size: 20pt; font-weight: bold; color: #01A0B6;">Illuminate</div>
-          </div>
-      `
-      
-      // Render page 2 preferences
+
+      // ========== PAGE 2 ==========
+      pdf.addPage()
+      pdf.setFillColor(0, 0, 0)
+      pdf.rect(0, 0, pageWidth, pageHeight, "F")
+
+      y = margin
+
+      // Page 2 header: Logo + Illuminate
+      await addImageToPdf(ICONS.elev8Logo, margin, y, 80, 32)
+      pdf.setTextColor(1, 160, 182)
+      pdf.setFontSize(18)
+      pdf.setFont("helvetica", "bold")
+      pdf.text("Illuminate", pageWidth / 2, y + 22, { align: "center" })
+      y += 50
+
+      // Bottom 2 preferences
       for (const category of page2Categories) {
-        const score = scores[category]
-        const descriptor = masterDescriptors[category]
-        const pressure = pressureStatements[category]
-        
-        html += `
-          <!-- Preference Row -->
-          <table style="width: 100%; margin-bottom: 20px; table-layout: fixed; border-collapse: collapse;">
-            <tbody>
-              <tr>
-                <td colSpan="2" style="padding-bottom: 10px;"></td>
-              </tr>
-              <tr>
-                <td style="width: 20%; vertical-align: top; padding-right: 15px;">
-                  <img src="${PERSONALITY_IMAGES[category]}" style="width: 120px; max-width: 120px; height: auto; display: block;" />
-                </td>
-                <td style="width: 80%; vertical-align: top; color: white; font-size: 11pt; line-height: 1.4;">
-                  <div style="font-size: 18pt; font-weight: bold; color: #01A0B6; margin-bottom: 10px;">${category}</div>
-                  <div style="font-size: 16pt; font-weight: bold; color: #01A0B6; text-align: right; margin-top: -28px;">${score}/40</div>
-                  <div style="margin-top: 10px; font-size: 11pt; line-height: 1.4;">${descriptor}</div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          
-          <!-- Pressure Bar -->
-          <div style="width: 100%; background-color: #008080; color: white; padding: 10px; font-weight: bold; font-size: 11pt; box-sizing: border-box; margin-bottom: 40px;">
-            ${pressure}
-          </div>
-        `
+        y = await renderPreferenceRow(category, y)
       }
-      
-      // Footer
-      html += `
-          <div style="margin-top: 60px; border-top: 1px solid #333; padding-top: 20px;">
-            <div style="font-size: 11pt; color: #B3B3B3; margin-bottom: 10px;">Flexing Your Approach</div>
-            <div style="font-size: 10pt; color: #B3B3B3; line-height: 1.4;">
-              Great communication is about making a choice to positively impact every conversation by creating a sense of being alike. The best communicators pick up on clues and adjust their style accordingly. By understanding your dominant preferences and being aware of others, you can flex your approach to build stronger connections.
-            </div>
-            <div style="font-size: 9pt; color: #666; text-align: center; margin-top: 30px;">
-              hello@Elev-8.co.uk | 0333 404 8888
-            </div>
-            <div style="font-size: 8pt; color: #666; text-align: center; margin-top: 10px;">
-              Powered by the Elev-8 behavioural preference model
-            </div>
-          </div>
-        </div>
-      `
-      
-      pdfContainer.innerHTML = html
-      document.body.appendChild(pdfContainer)
-      
-      // Generate PDF using html2pdf
-      const options = {
-        margin: [10, 10, 10, 10],
-        filename: `illuminate-profile${userData.name ? `-${userData.name.toLowerCase().replace(/\s+/g, "-")}` : ""}.pdf`,
-        image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, logging: false, useCORS: true },
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-      }
-      
-      await html2pdf.set(options).from(pdfContainer).save()
-      
-      // Clean up
-      document.body.removeChild(pdfContainer)
-      
-      // Show success modal after download
+
+      // Footer section
+      y = Math.max(y + 20, pageHeight - 100)
+      pdf.setTextColor(180, 180, 180)
+      pdf.setFontSize(10)
+      pdf.setFont("helvetica", "bold")
+      pdf.text("Flexing Your Approach", margin, y)
+
+      pdf.setFontSize(9)
+      pdf.setFont("helvetica", "normal")
+      const flexText = "Great communication is about making a choice to positively impact every conversation by creating a sense of being alike. The best communicators pick up on clues and adjust their style accordingly."
+      const flexLines = pdf.splitTextToSize(flexText, contentWidth)
+      pdf.text(flexLines, margin, y + 14, { lineHeightFactor: 1.2 })
+
+      // Contact footer
+      pdf.setTextColor(100, 100, 100)
+      pdf.setFontSize(8)
+      pdf.text("hello@Elev-8.co.uk | 0333 404 8888", pageWidth / 2, pageHeight - 24, { align: "center" })
+      pdf.text("Powered by the Elev-8 behavioural preference model", pageWidth / 2, pageHeight - 12, { align: "center" })
+
+      // Save PDF
+      pdf.save(`illuminate-profile${userData.name ? `-${userData.name.toLowerCase().replace(/\s+/g, "-")}` : ""}.pdf`)
+
       setShowSuccessModal(true)
     } catch (error) {
       console.error("Error generating PDF:", error)
