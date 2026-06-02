@@ -696,9 +696,6 @@ function QuizScreen({
           <span className="text-sm text-muted-foreground">
             Question {currentQuestion + 1} of {totalQuestions}
           </span>
-          <span className="text-sm text-[#01A0B6] font-medium">
-            Drag to rank (4 = most like you)
-          </span>
         </div>
         <div className="relative">
           <Progress value={progress} className="h-2" />
