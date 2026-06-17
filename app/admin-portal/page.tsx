@@ -20,8 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Lock, Download, Search, LogOut, Loader2, ArrowUpDown, ChevronLeft, ChevronRight, Plus, Key, Save, Trash2 } from "lucide-react"
-import { verifyAdminPassword, getResponses, getAccessCodes, createAccessCode, countResponsesForAccessCode, updateAccessCodeLimit, deleteAccessCode, deleteResponse, type Response, type AccessCode } from "@/app/actions"
+import { Lock, Download, Search, LogOut, Loader2, ArrowUpDown, ChevronLeft, ChevronRight, Plus, Key, Save, Trash2, Check } from "lucide-react"
+import { verifyAdminPassword, getResponses, getAccessCodes, createAccessCode, countResponsesForAccessCode, updateAccessCodeLimit, deleteAccessCode, deleteResponse, bulkDeleteResponses, type Response, type AccessCode } from "@/app/actions"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 const ITEMS_PER_PAGE = 20
@@ -38,6 +38,8 @@ export default function AdminPortal() {
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc")
   const [currentPage, setCurrentPage] = useState(1)
   const [deletingResponseId, setDeletingResponseId] = useState<number | null>(null)
+  const [selectedResponseIds, setSelectedResponseIds] = useState<Set<number>>(new Set())
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
   
   // Access codes state
   const [accessCodes, setAccessCodes] = useState<AccessCode[]>([])
@@ -196,6 +198,52 @@ export default function AdminPortal() {
     }
     
     setDeletingResponseId(null)
+  }
+
+  const handleSelectResponse = (responseId: number) => {
+    const newSelected = new Set(selectedResponseIds)
+    if (newSelected.has(responseId)) {
+      newSelected.delete(responseId)
+    } else {
+      newSelected.add(responseId)
+    }
+    setSelectedResponseIds(newSelected)
+  }
+
+  const handleSelectAllVisible = () => {
+    if (selectedResponseIds.size === paginatedResponses.length) {
+      // Deselect all
+      setSelectedResponseIds(new Set())
+    } else {
+      // Select all visible
+      const allIds = new Set(paginatedResponses.map(r => r.id))
+      setSelectedResponseIds(allIds)
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedResponseIds.size === 0) {
+      setError("No responses selected")
+      return
+    }
+
+    const count = selectedResponseIds.size
+    if (!confirm(`Are you sure you want to delete these ${count} responses? This action cannot be undone.`)) {
+      return
+    }
+
+    setIsBulkDeleting(true)
+    const result = await bulkDeleteResponses(Array.from(selectedResponseIds))
+    
+    if (result.success) {
+      setResponses(responses.filter(r => !selectedResponseIds.has(r.id)))
+      setSelectedResponseIds(new Set())
+      setError(null)
+    } else {
+      setError(result.error || "Failed to delete responses")
+    }
+    
+    setIsBulkDeleting(false)
   }
 
   const filteredAndSortedResponses = useMemo(() => {
@@ -432,12 +480,39 @@ export default function AdminPortal() {
           </Button>
         </div>
 
+        {/* Bulk Delete Button - Show only if items selected */}
+        {selectedResponseIds.size > 0 && (
+          <div className="mb-4">
+            <Button
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting}
+              className="bg-red-600 hover:bg-red-700 text-white font-semibold"
+            >
+              {isBulkDeleting ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4 mr-2" />
+              )}
+              Delete Selected ({selectedResponseIds.size})
+            </Button>
+          </div>
+        )}
+
         {/* Table */}
         <Card className="border-border overflow-hidden">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="border-border">
+                  <TableHead className="w-12 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedResponseIds.size === paginatedResponses.length && paginatedResponses.length > 0}
+                      onChange={handleSelectAllVisible}
+                      className="w-4 h-4 cursor-pointer"
+                      title="Select all visible responses"
+                    />
+                  </TableHead>
                   <TableHead
                     className="cursor-pointer hover:bg-muted/50 transition-colors"
                     onClick={() => handleSort("name")}
@@ -503,7 +578,7 @@ export default function AdminPortal() {
                   {paginatedResponses.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={10}
+                        colSpan={11}
                         className="text-center py-12 text-muted-foreground"
                       >
                         {searchQuery
@@ -520,6 +595,14 @@ export default function AdminPortal() {
                         transition={{ delay: index * 0.02 }}
                         className="border-border hover:bg-muted/50 transition-colors"
                       >
+                        <TableCell className="w-12 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedResponseIds.has(response.id)}
+                            onChange={() => handleSelectResponse(response.id)}
+                            className="w-4 h-4 cursor-pointer"
+                          />
+                        </TableCell>
                         <TableCell className="font-medium">
                           {response.name || "-"}
                         </TableCell>
